@@ -1,0 +1,372 @@
+#!/bin/tcsh 
+
+#--------------------------------------------------------------------------------
+# gaea
+#SBATCH --output=/ncrc/home2/Luan.Santos/SHiELD-LT2/scripts/run/stdout/%x.o%j
+#SBATCH --job-name=dp_1k.solo.mtn_schar
+#SBATCH --partition=batch
+#SBATCH --qos=debug
+#SBATCH --account=gfdl_w
+#SBATCH --time=00:10:00
+#SBATCH --clusters=c5
+#SBATCH --nodes=10
+
+set echo
+set OUTPUT_DIR = "/gpfs/f5/gfdl_w/scratch/Luan.Santos"
+set SCRIPT_AREA = ~${USER}/SHiELD-LT2
+source $SCRIPT_AREA/site/environment.csh
+
+#--------------------------------------------------------------------------------
+# stellar
+##SBATCH --output=/home/ls9640/SHiELD-LT2/scripts/run/stdout/%x.o%j
+##SBATCH --job-name=dp_1k.solo.mtn_schar
+##SBATCH --partition=batch
+##SBATCH --qos=urgent
+##SBATCH --account=cimes2
+##SBATCH --time=1:00:00
+##SBATCH --cluster=stellar
+##SBATCH --ntasks=700
+
+#set echo
+#set OUTPUT_DIR   = "/scratch/cimes/ls9640/OUTPUT/"
+#set SCRIPT_AREA = ~${USER}/SHiELD-LT2
+#source ${SCRIPT_AREA}/site/environment.stellar.sh_ok
+#--------------------------------------------------------------------------------
+
+set BUILD_DIR  = "~${USER}/SHiELD-LT2/SHiELD_build"
+set TABLES_DIR = "~${USER}/SHiELD-LT2/input_tables"
+set RELEASE = "SHiELD"
+
+set advscheme = "1"
+
+set ADV = "adv"$advscheme#"."$hord_option
+
+# case specific details
+set TYPE = "nh"          # choices:  nh, hydro (affects USE_COND and MOIST_CAPPA)
+set MODE = "64bit"      # choices:  32bit, 64bit
+set MONO = "non-mono"        # choices:  mono, non-mono
+set GRID = "d96_1k"
+set MEMO = "solo.mtn_schar"
+set HYPT = "off"         # choices:  on, off  (controls hyperthreading)
+set COMP = "repro"       # choices:  debug, repro, prod
+set NUM_TOT = 0         # run cycle, 0: never restart 1: no restart 
+
+# directory structure
+set WORKDIR    = ${OUTPUT_DIR}/${RELEASE}/${GRID}.${MEMO}.$ADV/
+set executable = ${BUILD_DIR}/Build/bin/SOLO_nh.${COMP}.${MODE}.intel.x
+set RUNNAME = ${GRID}.${MEMO}.${ADV}
+
+# changeable parameters
+    # dycore definitions
+    set npx = "193"
+    set npy = "5"
+    set npz = "40"
+    set layout_x = "4" 
+    set layout_y = "1" 
+    set io_layout = "1,1"
+    set nthreads = "1"
+    # doubly-periodic domain
+    set dd_const = 1000.
+
+    # time step parameters
+    set k_split = "1"
+    set n_split = "12"
+    set dt_atmos = "15"
+
+    # blocking factor used for threading and general physics performance
+    set blocksize = "16"
+
+    # run length
+    set months = "0"
+    set days = "0"
+    set hours = "5"
+    set minutes = "0"
+    set seconds = "0"
+    set nruns = "1"
+
+    #initialization options
+    # set the pre-conditioning of the solution
+    # =0 implies no pre-conditioning
+    # >0 means new adiabatic pre-conditioning
+    # <0 means older adiabatic pre-conditioning
+    set na_init = 0
+
+    set print_freq = "15" #180 
+    # variables for gfs diagnostic output intervals and time to zero out time-accumulated data
+
+    # set various debug options
+    set no_dycore = ".F."
+
+    if (${TYPE} == "nh") then
+      # non-hydrostatic options
+      set make_nh = ".T."
+      set hydrostatic = ".F."
+      set consv_te = "0." # Use 0 in doubly-periodic
+    else
+      # hydrostatic options
+      set make_nh = ".F."
+      set hydrostatic = ".T."
+      set consv_te = "0." # use 0 in doubly-periodic
+    endif
+
+    if (${MONO} == "mono" || ${MONO} == "monotonic") then
+      # monotonic options
+      set d_con = "1."
+      set do_vort_damp = ".false."
+      set vtdm4 = "0.00"
+      if (${TYPE} == "nh") then
+        # non-hydrostatic
+        set hord_mt = " 8"
+        set hord_xx = " 8"
+	set hord_tr = " 8"
+      else
+        # hydrostatic
+        set hord_mt = " 10"
+        set hord_xx = " 10"
+        set hord_tr = " 10"
+      endif
+      set kord = 9
+      set dddmp = 0
+    else
+      # non-monotonic options
+      set d_con = "1.0"
+      set do_vort_damp = ".true."
+      if (${TYPE} == "nh") then
+        # non-hydrostatic
+        set hord_mt = " 5"
+        set hord_xx = " 5"
+        set hord_tr = "-5"
+	set vtdm4 = "0.06"
+      else
+        # hydrostatic
+        set hord_mt = " 5"
+        set hord_xx = " 5"
+        set hord_tr = "-5"
+	set vtdm4 = "0.06"
+      endif
+        set kord=11
+	set dddmp=0.2
+    endif
+
+    # variables for hyperthreading
+    if (${HYPT} == "on") then
+      set hyperthread = ".true."
+      set div = 2
+    else
+      set hyperthread = ".false."
+      set div = 1
+    endif
+    @ skip = ${nthreads} / ${div}
+
+# when running with threads, need to use the following command
+    @ npes = ${layout_x} * ${layout_y} 
+    set run_cmd = "srun --ntasks=$npes --cpus-per-task=$skip ./$executable:t"
+
+    setenv MPICH_ENV_DISPLAY
+    setenv MPICH_MPIIO_CB_ALIGN 2
+    setenv MALLOC_MMAP_MAX_ 0
+    setenv MALLOC_TRIM_THRESHOLD_ 536870912
+    setenv NC_BLKSZ 1M
+# necessary for OpenMP when using Intel
+    setenv KMP_STACKSIZE 256m
+    setenv SLURM_CPU_BIND verbose
+
+set RUN_DIR = $PWD
+if ( "$SLURM_JOB_NAME" == "sh" ) then
+  set SCRIPT = "${RUN_DIR}/$0"
+else
+  set SCRIPT = "${RUN_DIR}/$SLURM_JOB_NAME"
+endif
+mkdir -p $WORKDIR/restart
+set RST_COUNT = $WORKDIR/restart/rst.count
+#######DEBUG
+#\rm -f $RST_COUNT
+#######END DEBUG
+if ( -f ${RST_COUNT} && $NUM_TOT > 0 ) then
+  source ${RST_COUNT}
+  if ( x"$num" == "x" || ${num} < 1 ) then
+    set RESTART_RUN = "F"
+  else
+    set RESTART_RUN = "T"
+  endif
+else
+  set num = 0
+  set RESTART_RUN = "F"
+endif
+
+
+
+#NEED TO BE CAREFUL OF SETUP CODE WRT RESTARTS!!
+if (${RESTART_RUN} == "F") then
+
+  \rm -rf $WORKDIR/rundir
+
+  mkdir -p $WORKDIR/rundir
+  cd $WORKDIR/rundir
+
+  mkdir -p RESTART
+  mkdir -p INPUT
+
+  # set variables in input.nml for initial run
+  set mountain = ".F."
+  set external_ic = ".F."
+  set warm_start = ".F."
+  set add_noise   = 0.0
+
+else
+
+  cd $WORKDIR/rundir
+  \rm -rf INPUT/*
+
+  # move the restart data into INPUT/
+  #mv RESTART/* INPUT/.
+  ln -s ${restart_dir}/*.res ${restart_dir}/[^0-9]*.nc ${restart_dir}/[^0-9]*.nc.???? INPUT/.
+
+  # reset values in input.nml for restart run
+  set make_nh = ".F."
+  set mountain = ".T."
+  set external_ic = ".F."
+  set warm_start = ".T."
+  set na_init = 0
+  set add_noise   = 0.0
+
+endif
+
+set curr_date = "0,0,0,0"
+
+# copy over the other tables and executable
+cp ${TABLES_DIR}/data_table data_table 
+cp ${TABLES_DIR}/field_table_6species_solo field_table
+cp $executable .
+
+# build the diag_table with the experiment name and date stamp
+cat >! diag_table << EOF
+${RUNNAME}
+0 0 0 0 0 0 
+EOF
+cat ${TABLES_DIR}/diag_table_dpc_solo >> diag_table 
+
+cat >! input.nml <<EOF
+
+ &atmos_model_nml
+     blocksize = $blocksize
+     chksum_debug = .false.
+/
+
+&diag_manager_nml
+     flush_nc_files = .false.
+     prepend_date = .F.
+/
+
+ &fms_io_nml
+       checksum_required   = .false.
+       max_files_r = 100,
+       max_files_w = 100,
+/
+
+ &fms_nml
+       clock_grain = 'ROUTINE',
+       domains_stack_size = 10000000,
+       print_memory_usage = .F.
+/
+
+ &fv_core_nml
+    !Domain and layout parameters
+       layout   = $layout_x,$layout_y
+       io_layout = $io_layout
+       npx      = $npx
+       npy      = $npy
+       ntiles   = 1,
+       npz    = $npz
+       npz_type = 'lowtop'
+       grid_type = 4 
+       dx_const = ${dd_const}
+       dy_const = ${dd_const}
+       deglat   = 0.
+
+    !Solver options
+       k_split  = $k_split
+       n_split  = $n_split
+       z_tracer = .T.
+       hydrostatic = $hydrostatic
+       nwat = 0
+       dnats = 1
+
+       hord_mt = $hord_mt
+       hord_vt = $hord_xx
+       hord_tm = $hord_xx
+       hord_dp = $hord_xx
+       hord_tr = $hord_tr
+
+       !adv_scheme = $advscheme
+       kord_tm = -${kord}
+       kord_mt =  ${kord}
+       kord_wz =  ${kord}
+       kord_tr =  ${kord}
+
+    !Initialization options
+       make_nh = $make_nh
+       na_init = $na_init
+       nudge_qv = ${external_ic}
+       external_ic = ${external_ic}
+       add_noise = ${add_noise}
+       mountain = $mountain
+       is_ideal_case = .T.
+    !Damping options
+       nord =  3 
+       d4_bg = 0.15
+       do_vort_damp = $do_vort_damp
+       vtdm4 = 0.03
+       delt_max = 0.01
+       d_con = ${d_con}
+       dddmp = ${dddmp}
+       d_ext = 0.0
+
+    !Upper boundary options
+       n_sponge = 0
+       fv_sg_adj = -1
+       tau =  0.01
+       rf_cutoff = 250.e2
+       d2_bg_k1 = 0.2
+       d2_bg_k2 = 0.1
+
+     !Physics options
+       consv_te = $consv_te
+       fill = .T.
+       phys_hydrostatic = .F.
+
+    !Debugging and diagnostics
+       print_freq = $print_freq
+       warm_start = $warm_start
+       no_dycore = $no_dycore
+       fv_debug = .F.
+       range_warn = .F.
+/
+
+&integ_phys_nml
+       do_sat_adj = .F.
+       do_inline_mp = .F.
+/
+
+&test_case_nml ! cold start
+    test_case = 21
+/
+
+ &main_nml
+       days  = $days
+       hours = $hours
+       minutes = $minutes
+       seconds = $seconds
+       dt_atmos = $dt_atmos
+       current_time =  $curr_date
+       atmos_nthreads = $nthreads
+       use_hyper_thread = $hyperthread
+/!
+&fms_affinity_nml
+affinity=.F.
+/
+
+EOF
+
+# run the executable
+${run_cmd} | tee fms.out || exit
