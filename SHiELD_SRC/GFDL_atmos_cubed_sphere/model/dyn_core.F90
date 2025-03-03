@@ -75,7 +75,7 @@ public :: dyn_core, del2_cubed, init_ijk_mem
 
   real :: ptk, peln1, rgrav
   real :: d3_damp
-  real, allocatable, dimension(:,:,:) ::  ut, vt, crx, cry, xfx, yfx, divgd, &
+  real, allocatable, dimension(:,:,:) ::  ut, vt, crx, cry, crx_rk2, cry_rk2, xfx, yfx, xfx_rk2, yfx_rk2, divgd, &
                                           zh, du, dv, pkc, delpc, pk3, ptc, gz
   real(kind=R_GRID), parameter :: cnst_0p20=0.20d0
 
@@ -93,7 +93,7 @@ contains
 
  subroutine dyn_core(npx, npy, npz, ng, sphum, nq, bdt, n_map, n_split, zvir, cp, akap, cappa, grav, hydrostatic,  &
                      u,  v,  w, delz, pt, q, delp, pe, pk, phis, ws, omga, ptop, pfull, ua, va, &
-                     uc, vc, mfx, mfy, cx, cy, pkz, peln, q_con, ak, bk, &
+                     uc, vc, uc_old, vc_old, mfx, mfy, cx, cy, cx_rk2, cy_rk2, pkz, peln, q_con, ak, bk, &
                      ks, gridstruct, flagstruct, neststruct, thermostruct, idiag, bd, domain, &
                      init_step, i_pack, end_step, heat_source, diss_est, consv, te0_2d, time_total)
     integer, intent(IN) :: npx
@@ -146,6 +146,8 @@ contains
     real, intent(inout):: omga(bd%isd:bd%ied,bd%jsd:bd%jed,npz)    ! Vertical pressure velocity (pa/s)
     real, intent(inout):: uc(bd%isd:bd%ied+1,bd%jsd:bd%jed  ,npz)  ! (uc, vc) are mostly used as the C grid winds
     real, intent(inout):: vc(bd%isd:bd%ied  ,bd%jsd:bd%jed+1,npz)
+    real, intent(inout):: uc_old(bd%isd:bd%ied+1,bd%jsd:bd%jed  ,npz)
+    real, intent(inout):: vc_old(bd%isd:bd%ied  ,bd%jsd:bd%jed+1,npz)
     real, intent(inout), dimension(bd%isd:bd%ied,bd%jsd:bd%jed,npz):: ua, va
     real, intent(inout):: q_con(bd%isd:, bd%jsd:, 1:)
     real, intent(inout):: te0_2d(bd%is:bd%ie,bd%js:bd%je)
@@ -156,6 +158,9 @@ contains
 ! Accumulated Courant number arrays
     real, intent(inout)::  cx(bd%is:bd%ie+1, bd%jsd:bd%jed, npz)
     real, intent(inout)::  cy(bd%isd:bd%ied ,bd%js:bd%je+1, npz)
+    real, intent(inout)::  cx_rk2(bd%is:bd%ie+1, bd%jsd:bd%jed, npz)
+    real, intent(inout)::  cy_rk2(bd%isd:bd%ied ,bd%js:bd%je+1, npz)
+
     real, intent(inout),dimension(bd%is:bd%ie,bd%js:bd%je,npz):: pkz
 
     type(fv_grid_type),  intent(INOUT), target :: gridstruct
@@ -176,6 +181,12 @@ contains
     real ebuffer(npy+2,npz)
     real nbuffer(npx+2,npz)
     real sbuffer(npx+2,npz)
+    real :: cr_weights(1:n_split) ! These weights are specifically designed to interpolate the time averaged wind field
+                                  ! centered at a longer time step (dt_atmos).
+                                  ! Used by LT2 only to compute cx_rk2 and cy_rk2 needed by tracers advection.
+    real :: cr_weight
+
+
 ! ----   For external mode:
     real divg2(bd%is:bd%ie+1,bd%js:bd%je+1)
     real wk(bd%isd:bd%ied,bd%jsd:bd%jed)
@@ -261,6 +272,10 @@ contains
            allocate( xfx(is :ie+1, jsd:jed,  npz) )
            allocate( cry(isd:ied,  js :je+1, npz) )
            allocate( yfx(isd:ied,  js :je+1, npz) )
+           allocate( crx_rk2(is :ie+1, jsd:jed,  npz) )
+           allocate( xfx_rk2(is :ie+1, jsd:jed,  npz) )
+           allocate( cry_rk2(isd:ied,  js :je+1, npz) )
+           allocate( yfx_rk2(isd:ied,  js :je+1, npz) )
            allocate( divgd(isd:ied+1,jsd:jed+1,npz) )
            allocate( delpc(isd:ied, jsd:jed  ,npz  ) )
 !                    call init_ijk_mem(isd,ied, jsd,jed, npz, delpc, 0.)
@@ -290,6 +305,9 @@ contains
     call init_ijk_mem(is, ie  , js,  je+1, npz, mfy, 0.)
     call init_ijk_mem(is, ie+1, jsd, jed,  npz, cx, 0.)
     call init_ijk_mem(isd, ied, js,  je+1, npz, cy, 0.)
+    call init_ijk_mem(is, ie+1, jsd, jed,  npz, cx_rk2, 0.)
+    call init_ijk_mem(isd, ied, js,  je+1, npz, cy_rk2, 0.)
+
 
     call init_ijk_mem(isd, ied, jsd, jed, npz, heat_source, 0.)
 
@@ -309,12 +327,15 @@ contains
 
 
 
+    call coeffs_cr(n_split, cr_weights)
+
 !-----------------------------------------------------
   do it=1,n_split
 !-----------------------------------------------------
 #ifdef ROT3
      call start_group_halo_update(i_pack(8), u, v, domain, gridtype=DGRID_NE)
 #endif
+     cr_weight = cr_weights(it)
      if ( flagstruct%breed_vortex_inline .or. it==n_split ) then
           remap_step = .true.
      else
@@ -433,13 +454,14 @@ contains
      call timing_off('COMM_TOTAL')
 
       call timing_on('C_SW')
-!$OMP parallel do default(none) shared(npz,isd,jsd,delpc,delp,ptc,pt,u,v,w,uc,vc,ua,va, &
+!$OMP parallel do default(none) shared(npz,isd,jsd,delpc,delp,ptc,pt,u,v,w,uc,uc_old,vc_old,vc,ua,va, &
 !$OMP                                  omga,ut,vt,divgd,flagstruct,dt2,hydrostatic,bd,  &
 !$OMP                                  gridstruct,thermostruct)
       do k=1,npz
          call c_sw(delpc(isd,jsd,k), delp(isd,jsd,k),  ptc(isd,jsd,k),    &
                       pt(isd,jsd,k),    u(isd,jsd,k),    v(isd,jsd,k),    &
                        w(isd:,jsd:,k),   uc(isd,jsd,k),   vc(isd,jsd,k),    &
+                       uc_old(isd:,jsd:,k),   vc_old(isd,jsd,k),  &
                       ua(isd,jsd,k),   va(isd,jsd,k), omga(isd,jsd,k),    &
                       ut(isd,jsd,k),   vt(isd,jsd,k), divgd(isd,jsd,k),   &
                       flagstruct%nord,   dt2,  hydrostatic,  .true., bd,  &
@@ -564,6 +586,13 @@ contains
       call timing_on('COMM_TOTAL')
       call start_group_halo_update(i_pack(9), uc, vc, domain, gridtype=CGRID_NE)
       call timing_off('COMM_TOTAL')
+
+      if(flagstruct%adv_scheme==2)then
+         call timing_on('COMM_TOTAL')
+         call start_group_halo_update(i_pack(14), uc_old, vc_old, domain, gridtype=CGRID_NE)
+         call timing_off('COMM_TOTAL')
+      endif
+
 #ifdef SW_DYNAMICS
       if (test_case==9) call case9_forcing2(phis, isd, ied, jsd, jed)
       endif !test_case>1
@@ -576,6 +605,10 @@ contains
 #endif
                         if (flagstruct%nord > 0) call complete_group_halo_update(i_pack(3), domain)
                                                  call complete_group_halo_update(i_pack(9), domain)
+
+    if(flagstruct%adv_scheme==2)then
+       if (flagstruct%nord > 0) call complete_group_halo_update(i_pack(14), domain)
+    endif
 #ifdef SW_DYNAMICS
     endif
 #endif
@@ -657,12 +690,12 @@ contains
     call timing_on('D_SW')
 !$OMP parallel do default(none) shared(npz,flagstruct,nord_v,pfull,damp_vt,hydrostatic,last_step, &
 !$OMP                                  is,ie,js,je,isd,ied,jsd,jed,omga,delp,gridstruct,npx,npy,  &
-!$OMP                                  ng,zh,vt,ptc,pt,u,v,w,uc,vc,ua,va,divgd,mfx,mfy,cx,cy,     &
-!$OMP                                  crx,cry,xfx,yfx,q_con,zvir,sphum,nq,q,dt,bd,rdt,iep1,jep1, &
+!$OMP                                  ng,zh,vt,ptc,pt,u,v,w,uc,vc,uc_old,vc_old,ua,va,divgd,mfx,mfy,cx,cy,cx_rk2,cy_rk2,     &
+!$OMP                                  crx,cry,xfx,yfx,crx_rk2,cry_rk2,xfx_rk2,yfx_rk2,q_con,zvir,sphum,nq,q,dt,bd,rdt,iep1,jep1, &
 !$OMP                                  heat_source,diss_est,radius,idiag,end_step,thermostruct)   &
 !$OMP                          private(nord_k, nord_w, nord_t, damp_w, damp_t, d2_divg,   &
 !$OMP                          d_con_k,kgb, hord_m, hord_v, hord_t, hord_p, wk, heat_s,   &
-!$OMP                          diss_e, z_rat, k_q_con)
+!$OMP                          diss_e, z_rat, k_q_con, cr_weight)
     do k=1,npz
        hord_m = flagstruct%hord_mt
        hord_t = flagstruct%hord_tm
@@ -761,15 +794,18 @@ contains
        endif
        call d_sw(vt(isd,jsd,k), delp(isd,jsd,k), ptc(isd,jsd,k),  pt(isd,jsd,k),      &
                   u(isd,jsd,k),    v(isd,jsd,k),   w(isd:,jsd:,k),  uc(isd,jsd,k),      &
-                  vc(isd,jsd,k),   ua(isd,jsd,k),  va(isd,jsd,k), divgd(isd,jsd,k),   &
+                  vc(isd,jsd,k),  uc_old(isd,jsd,k),   vc_old(isd,jsd,k),  &
+                  ua(isd,jsd,k),  va(isd,jsd,k), divgd(isd,jsd,k),   &
                   mfx(is, js, k),  mfy(is, js, k),  cx(is, jsd,k),  cy(isd,js, k),    &
+                  cx_rk2(is, jsd,k),  cy_rk2(isd,js, k),    &
                   crx(is, jsd,k),  cry(isd,js, k), xfx(is, jsd,k), yfx(isd,js, k),    &
+                  crx_rk2(is, jsd,k),  cry_rk2(isd,js, k), xfx_rk2(is, jsd,k), yfx_rk2(isd,js, k),    &
                   q_con(isd:,jsd:,k_q_con),  z_rat(isd,jsd),  &
                   kgb, heat_s, diss_e, zvir, sphum, nq,  q,  k,  npz, flagstruct%inline_q,  dt,  &
                   flagstruct%hord_tr, hord_m, hord_v, hord_t, hord_p,    &
                   nord_k, nord_v(k), nord_w, nord_t, flagstruct%dddmp, d2_divg, flagstruct%d4_bg,  &
                   damp_vt(k), damp_w, damp_t, d_con_k, &
-                  hydrostatic, gridstruct, flagstruct, thermostruct%use_cond, bd)
+                  hydrostatic, gridstruct, flagstruct, thermostruct%use_cond, bd, cr_weight)
 
        if((.not.flagstruct%use_old_omega) .and. last_step ) then
 ! Average horizontal "convergence" to cell center
@@ -1374,6 +1410,10 @@ contains
     deallocate(   xfx )
     deallocate(   cry )
     deallocate(   yfx )
+    deallocate(   crx_rk2)
+    deallocate(   xfx_rk2)
+    deallocate(   cry_rk2)
+    deallocate(   yfx_rk2)
     deallocate( divgd )
     deallocate(   pkc )
     deallocate( delpc )
@@ -2749,4 +2789,24 @@ do 1000 j=jfirst,jlast
 
  end subroutine compute_dudz
 
+ subroutine coeffs_cr(n_split, weights)
+    ! Compute coefficients for computation of cr_rk2 and cr_rk2 
+    integer :: n_split
+    real, intent(inout) :: weights(1:n_split)
+    real :: x
+    integer :: i, j, N
+
+    N = n_split
+    x = real((N+1.0d0)*0.5d0)
+    do i = 1, N
+       weights(i)=1.d0
+       do j = 1, N
+         if (i.ne.j) then
+           weights(i) = weights(i)*real(x-j)/real(i-j)
+         endif
+       enddo
+       weights(i) = weights(i)*n_split
+    enddo
+   
+ end subroutine coeffs_cr
 end module dyn_core_mod

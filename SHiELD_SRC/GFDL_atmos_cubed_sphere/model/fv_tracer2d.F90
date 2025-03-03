@@ -46,8 +46,9 @@ contains
 
 
 
-subroutine tracer_2d_1L(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy, npz,   &
-                        nq,  hord, q_split, dt, id_divg_mean, q_pack, dp1_pack, nord_tr, trdm, lim_fac)
+subroutine tracer_2d_1L(q, dp1, delp, mfx, mfy, cx, cy, cx_rk2, cy_rk2, gridstruct, bd, domain, npx, npy, npz,   &
+                        nq,  hord, q_split, dt, id_divg_mean, q_pack, dp1_pack, nord_tr, &
+                        trdm, lim_fac, adv_scheme)
 
       type(fv_grid_bounds_type), intent(IN) :: bd
       integer, intent(IN) :: npx
@@ -57,15 +58,19 @@ subroutine tracer_2d_1L(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, n
       integer, intent(IN) :: hord, nord_tr
       integer, intent(IN) :: q_split
       integer, intent(IN) :: id_divg_mean
+      integer, intent(IN) :: adv_scheme
       real   , intent(IN) :: dt, trdm
       real   , intent(IN) :: lim_fac
       type(group_halo_update_type), intent(inout) :: q_pack, dp1_pack
       real   , intent(INOUT) :: q(bd%isd:bd%ied,bd%jsd:bd%jed,npz,nq)   ! Tracers
       real   , intent(INOUT) :: dp1(bd%isd:bd%ied,bd%jsd:bd%jed,npz)        ! DELP before dyn_core
+      real   , intent(INOUT) :: delp(bd%isd:bd%ied,bd%jsd:bd%jed,npz)       ! DELP after  dyn_core
       real   , intent(INOUT) :: mfx(bd%is:bd%ie+1,bd%js:bd%je,  npz)    ! Mass Flux X-Dir
       real   , intent(INOUT) :: mfy(bd%is:bd%ie  ,bd%js:bd%je+1,npz)    ! Mass Flux Y-Dir
       real   , intent(INOUT) ::  cx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
       real   , intent(INOUT) ::  cy(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
+      real   , intent(INOUT) ::  cx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
+      real   , intent(INOUT) ::  cy_rk2(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
       type(fv_grid_type), intent(IN), target :: gridstruct
       type(domain2d), intent(INOUT) :: domain
 
@@ -78,6 +83,8 @@ subroutine tracer_2d_1L(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, n
       real :: ra_y(bd%isd:bd%ied,bd%js:bd%je)
       real :: xfx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
       real :: yfx(bd%isd:bd%ied,bd%js: bd%je+1, npz)
+      real :: xfx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
+      real :: yfx_rk2(bd%isd:bd%ied,bd%js: bd%je+1, npz)
       real :: cmax(npz)
       real :: frac(npz), rdt
       integer :: nsplt
@@ -294,8 +301,9 @@ subroutine tracer_2d_1L(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, n
 end subroutine tracer_2d_1L
 
 
-subroutine tracer_2d(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy, npz,   &
-                     nq,  hord, q_split, dt, id_divg_mean, q_pack, dp1_pack, nord_tr, trdm, lim_fac)
+subroutine tracer_2d(q, dp1, delp, mfx, mfy, cx, cy, cx_rk2, cy_rk2, gridstruct, bd, domain, npx, npy, npz,   &
+                     nq,  hord, q_split, dt, id_divg_mean, q_pack, dp1_pack, nord_tr, trdm, &
+                     lim_fac, adv_scheme)
 
       type(fv_grid_bounds_type), intent(IN) :: bd
       integer, intent(IN) :: npx
@@ -305,15 +313,19 @@ subroutine tracer_2d(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy,
       integer, intent(IN) :: hord, nord_tr
       integer, intent(IN) :: q_split
       integer, intent(IN) :: id_divg_mean
+      integer, intent(IN) :: adv_scheme
       real   , intent(IN) :: dt, trdm
       real   , intent(IN) :: lim_fac
       type(group_halo_update_type), intent(inout) :: q_pack, dp1_pack
       real   , intent(INOUT) :: q(bd%isd:bd%ied,bd%jsd:bd%jed,npz,nq)   ! Tracers
       real   , intent(INOUT) :: dp1(bd%isd:bd%ied,bd%jsd:bd%jed,npz)        ! DELP before dyn_core
+      real   , intent(INOUT) :: delp(bd%isd:bd%ied,bd%jsd:bd%jed,npz)       ! DELP after  dyn_core
       real   , intent(INOUT) :: mfx(bd%is:bd%ie+1,bd%js:bd%je,  npz)    ! Mass Flux X-Dir
       real   , intent(INOUT) :: mfy(bd%is:bd%ie  ,bd%js:bd%je+1,npz)    ! Mass Flux Y-Dir
       real   , intent(INOUT) ::  cx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
       real   , intent(INOUT) ::  cy(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
+      real   , intent(INOUT) ::  cx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
+      real   , intent(INOUT) ::  cy_rk2(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
       type(fv_grid_type), intent(IN), target :: gridstruct
       type(domain2d), intent(INOUT) :: domain
 
@@ -325,6 +337,8 @@ subroutine tracer_2d(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy,
       real :: ra_y(bd%isd:bd%ied,bd%js:bd%je)
       real :: xfx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
       real :: yfx(bd%isd:bd%ied,bd%js: bd%je+1, npz)
+      real :: xfx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
+      real :: yfx_rk2(bd%isd:bd%ied,bd%js: bd%je+1, npz)
       real :: cmax(npz)
       real :: c_global
       real :: frac(npz), rdt
@@ -557,9 +571,10 @@ subroutine tracer_2d(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy,
 end subroutine tracer_2d
 
 
-subroutine tracer_2d_nested(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, npx, npy, npz,   &
+subroutine tracer_2d_nested(q, dp1, delp, mfx, mfy, cx, cy, cx_rk2, cy_rk2, gridstruct, bd, domain, npx, npy, npz,   &
                      nq,  hord, q_split, dt, id_divg_mean, q_pack, dp1_pack, nord_tr, trdm, &
-                     k_split, neststruct, parent_grid, n_map, lim_fac)
+                     k_split, neststruct, parent_grid, n_map, lim_fac, adv_scheme)
+
 
       type(fv_grid_bounds_type), intent(IN) :: bd
       integer, intent(IN) :: npx
@@ -569,15 +584,19 @@ subroutine tracer_2d_nested(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, np
       integer, intent(IN) :: hord, nord_tr
       integer, intent(IN) :: q_split, k_split, n_map
       integer, intent(IN) :: id_divg_mean
+      integer, intent(IN) :: adv_scheme
       real   , intent(IN) :: dt, trdm
       real   , intent(IN) :: lim_fac
       type(group_halo_update_type), intent(inout) :: q_pack, dp1_pack
       real   , intent(INOUT) :: q(bd%isd:bd%ied,bd%jsd:bd%jed,npz,nq)   ! Tracers
       real   , intent(INOUT) :: dp1(bd%isd:bd%ied,bd%jsd:bd%jed,npz)        ! DELP before dyn_core
+      real   , intent(INOUT) :: delp(bd%isd:bd%ied,bd%jsd:bd%jed,npz)       ! DELP after  dyn_core
       real   , intent(INOUT) :: mfx(bd%is:bd%ie+1,bd%js:bd%je,  npz)    ! Mass Flux X-Dir
       real   , intent(INOUT) :: mfy(bd%is:bd%ie  ,bd%js:bd%je+1,npz)    ! Mass Flux Y-Dir
       real   , intent(INOUT) ::  cx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
       real   , intent(INOUT) ::  cy(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
+      real   , intent(INOUT) ::  cx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)  ! Courant Number X-Dir
+      real   , intent(INOUT) ::  cy_rk2(bd%isd:bd%ied,bd%js :bd%je +1,npz)  ! Courant Number Y-Dir
       type(fv_grid_type), intent(IN), target :: gridstruct
       type(fv_nest_type), intent(INOUT) :: neststruct
       type(fv_atmos_type), pointer, intent(IN) :: parent_grid
@@ -591,6 +610,8 @@ subroutine tracer_2d_nested(q, dp1, mfx, mfy, cx, cy, gridstruct, bd, domain, np
       real :: ra_y(bd%isd:bd%ied,bd%js:bd%je)
       real :: xfx(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
       real :: yfx(bd%isd:bd%ied,bd%js: bd%je+1, npz)
+      real :: xfx_rk2(bd%is:bd%ie+1,bd%jsd:bd%jed  ,npz)
+      real :: yfx_rk2(bd%isd:bd%ied,bd%js: bd%je+1, npz)
       real :: cmax(npz)
       real :: cmax_t
       real :: c_global

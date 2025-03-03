@@ -232,6 +232,7 @@ module fv_arrays_mod
 !                                   !<  5: a user-defined orthogonal grid for stand alone regional model
 !  -> moved to grid_tools
 
+   integer :: adv_scheme = 1 !< 2D advection scheme
 
 !> Momentum (or KE) options:
    integer :: hord_mt = 10   !< Horizontal advection scheme for momentum fluxes. A
@@ -1321,7 +1322,8 @@ module fv_arrays_mod
     real, _ALLOCATABLE :: va(:,:,:)     _NULL
     real, _ALLOCATABLE :: uc(:,:,:)     _NULL  ! (uc, vc) are mostly used as the C grid winds
     real, _ALLOCATABLE :: vc(:,:,:)     _NULL
-
+    real, _ALLOCATABLE :: uc_old(:,:,:)     _NULL  ! (uc, vc) are C grid winds at time level n that are used in the 2nd order
+    real, _ALLOCATABLE :: vc_old(:,:,:)     _NULL  ! departure point scheme 
     real, _ALLOCATABLE :: ak(:)  _NULL
     real, _ALLOCATABLE :: bk(:)  _NULL
 
@@ -1333,6 +1335,8 @@ module fv_arrays_mod
 ! Accumulated Courant number arrays
     real, _ALLOCATABLE ::  cx(:,:,:)  _NULL
     real, _ALLOCATABLE ::  cy(:,:,:)  _NULL
+    real, _ALLOCATABLE ::  cx_rk2(:,:,:)  _NULL
+    real, _ALLOCATABLE ::  cy_rk2(:,:,:)  _NULL
 
     type(fv_flags_type) :: flagstruct
 
@@ -1556,11 +1560,15 @@ contains
     allocate (   Atm%va(isd:ied  ,jsd:jed  ,npz) )
     allocate (   Atm%uc(isd:ied+1,jsd:jed  ,npz) )
     allocate (   Atm%vc(isd:ied  ,jsd:jed+1,npz) )
+    allocate (   Atm%uc_old(isd:ied+1,jsd:jed  ,npz) )
+    allocate (   Atm%vc_old(isd:ied  ,jsd:jed+1,npz) )
     ! For tracer transport:
     allocate ( Atm%mfx(is:ie+1, js:je,  npz) )
     allocate ( Atm%mfy(is:ie  , js:je+1,npz) )
     allocate (  Atm%cx(is:ie+1, jsd:jed, npz) )
     allocate (  Atm%cy(isd:ied ,js:je+1, npz) )
+    allocate (  Atm%cx_rk2(is:ie+1, jsd:jed, npz) )
+    allocate (  Atm%cy_rk2(isd:ied ,js:je+1, npz) )
 
     allocate (  Atm%ak(npz_2d+1) )
     allocate (  Atm%bk(npz_2d+1) )
@@ -1984,10 +1992,14 @@ contains
     deallocate (   Atm%va )
     deallocate (   Atm%uc )
     deallocate (   Atm%vc )
+    deallocate (   Atm%uc_old )
+    deallocate (   Atm%vc_old )
     deallocate ( Atm%mfx )
     deallocate ( Atm%mfy )
     deallocate (  Atm%cx )
     deallocate (  Atm%cy )
+    deallocate (  Atm%cx_rk2 )
+    deallocate (  Atm%cy_rk2 )
     deallocate (  Atm%ak )
     deallocate (  Atm%bk )
     deallocate ( Atm%heat_source )

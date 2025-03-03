@@ -490,8 +490,10 @@ contains
                       Atm(n)%pe, Atm(n)%pk, Atm(n)%peln,                   &
                       Atm(n)%pkz, Atm(n)%phis, Atm(n)%q_con,               &
                       Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc,        &
-                      Atm(n)%vc, Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx,         &
-                      Atm(n)%mfy, Atm(n)%cx, Atm(n)%cy, Atm(n)%ze0,        &
+                      Atm(n)%vc, Atm(n)%uc_old, Atm(n)%vc_old,             &
+                      Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx,                    &
+                      Atm(n)%mfy, Atm(n)%cx, Atm(n)%cy,                    &
+                      Atm(n)%cx_rk2, Atm(n)%cy_rk2, Atm(n)%ze0,            &
                       Atm(n)%flagstruct%hybrid_z, Atm(n)%gridstruct,       &
                       Atm(n)%flagstruct, Atm(n)%neststruct,                &
                       Atm(n)%thermostruct, Atm(n)%idiag, Atm(n)%bd,        &
@@ -1588,8 +1590,9 @@ contains
                      Atm(mygrid)%pt, Atm(mygrid)%delp, Atm(mygrid)%q, Atm(mygrid)%ps,                     &
                      Atm(mygrid)%pe, Atm(mygrid)%pk, Atm(mygrid)%peln, Atm(mygrid)%pkz, Atm(mygrid)%phis,      &
                      Atm(mygrid)%q_con, Atm(mygrid)%omga, Atm(mygrid)%ua, Atm(mygrid)%va, Atm(mygrid)%uc, Atm(mygrid)%vc, &
+                     Atm(mygrid)%uc_old, Atm(mygrid)%vc_old, &
                      Atm(mygrid)%ak, Atm(mygrid)%bk, Atm(mygrid)%mfx, Atm(mygrid)%mfy,                    &
-                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
+                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%cx_rk2, Atm(mygrid)%cy_rk2, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
                      Atm(mygrid)%gridstruct, Atm(mygrid)%flagstruct, Atm(mygrid)%neststruct,                &
                      Atm(mygrid)%thermostruct, Atm(mygrid)%idiag, Atm(mygrid)%bd, Atm(mygrid)%parent_grid,  &
                      Atm(mygrid)%domain, Atm(mygrid)%inline_mp, Atm(mygrid)%heat_source,Atm(mygrid)%diss_est)
@@ -1602,8 +1605,9 @@ contains
                      Atm(mygrid)%pt, Atm(mygrid)%delp, Atm(mygrid)%q, Atm(mygrid)%ps,                     &
                      Atm(mygrid)%pe, Atm(mygrid)%pk, Atm(mygrid)%peln, Atm(mygrid)%pkz, Atm(mygrid)%phis,      &
                      Atm(mygrid)%q_con, Atm(mygrid)%omga, Atm(mygrid)%ua, Atm(mygrid)%va, Atm(mygrid)%uc, Atm(mygrid)%vc, &
+                     Atm(mygrid)%uc_old, Atm(mygrid)%vc_old, &
                      Atm(mygrid)%ak, Atm(mygrid)%bk, Atm(mygrid)%mfx, Atm(mygrid)%mfy,                    &
-                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
+                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%cx_rk2, Atm(mygrid)%cy_rk2, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
                      Atm(mygrid)%gridstruct, Atm(mygrid)%flagstruct, Atm(mygrid)%neststruct,               &
                      Atm(mygrid)%thermostruct, Atm(mygrid)%idiag, Atm(mygrid)%bd, Atm(mygrid)%parent_grid,  &
                      Atm(mygrid)%domain, Atm(mygrid)%inline_mp, Atm(mygrid)%heat_source,Atm(mygrid)%diss_est)
@@ -1674,8 +1678,9 @@ contains
                      Atm(mygrid)%pt, Atm(mygrid)%delp, Atm(mygrid)%q, Atm(mygrid)%ps,                     &
                      Atm(mygrid)%pe, Atm(mygrid)%pk, Atm(mygrid)%peln, Atm(mygrid)%pkz, Atm(mygrid)%phis,      &
                      Atm(mygrid)%q_con, Atm(mygrid)%omga, Atm(mygrid)%ua, Atm(mygrid)%va, Atm(mygrid)%uc, Atm(mygrid)%vc, &
+                     Atm(mygrid)%uc_old, Atm(mygrid)%vc_old, &
                      Atm(mygrid)%ak, Atm(mygrid)%bk, Atm(mygrid)%mfx, Atm(mygrid)%mfy,                    &
-                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
+                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%cx_rk2, Atm(mygrid)%cy_rk2, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
                      Atm(mygrid)%gridstruct, Atm(mygrid)%flagstruct, Atm(mygrid)%neststruct, &
                      Atm(mygrid)%thermostruct, Atm(mygrid)%idiag, Atm(mygrid)%bd, Atm(mygrid)%parent_grid,  &
                      Atm(mygrid)%domain, Atm(mygrid)%inline_mp, Atm(mygrid)%heat_source,Atm(mygrid)%diss_est)
@@ -1688,8 +1693,9 @@ contains
                      Atm(mygrid)%pt, Atm(mygrid)%delp, Atm(mygrid)%q, Atm(mygrid)%ps,                     &
                      Atm(mygrid)%pe, Atm(mygrid)%pk, Atm(mygrid)%peln, Atm(mygrid)%pkz, Atm(mygrid)%phis,      &
                      Atm(mygrid)%q_con, Atm(mygrid)%omga, Atm(mygrid)%ua, Atm(mygrid)%va, Atm(mygrid)%uc, Atm(mygrid)%vc, &
+                     Atm(mygrid)%uc_old, Atm(mygrid)%vc_old, &
                      Atm(mygrid)%ak, Atm(mygrid)%bk, Atm(mygrid)%mfx, Atm(mygrid)%mfy,                    &
-                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
+                     Atm(mygrid)%cx, Atm(mygrid)%cy, Atm(mygrid)%cx_rk2, Atm(mygrid)%cy_rk2, Atm(mygrid)%ze0, Atm(mygrid)%flagstruct%hybrid_z,    &
                      Atm(mygrid)%gridstruct, Atm(mygrid)%flagstruct, Atm(mygrid)%neststruct,              &
                      Atm(mygrid)%thermostruct, Atm(mygrid)%idiag, Atm(mygrid)%bd, Atm(mygrid)%parent_grid,  &
                      Atm(mygrid)%domain, Atm(mygrid)%inline_mp, Atm(mygrid)%heat_source,Atm(mygrid)%diss_est)
