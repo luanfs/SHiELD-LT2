@@ -37,7 +37,7 @@ set BUILD_DIR  = "~${USER}/SHiELD-LT2/SHiELD_build"
 set TABLES_DIR = "~${USER}/SHiELD-LT2/input_tables"
 set RELEASE = "SHiELD"
 
-set advscheme = "2"
+set advscheme = "1"
 
 set ADV = "adv"$advscheme#"."$hord_option
 
@@ -300,7 +300,7 @@ cat >! input.nml <<EOF
        hord_dp = $hord_xx
        hord_tr = $hord_tr
 
-       !adv_scheme = $advscheme
+       adv_scheme = $advscheme
        kord_tm = -${kord}
        kord_mt =  ${kord}
        kord_wz =  ${kord}

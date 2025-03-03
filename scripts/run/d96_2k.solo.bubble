@@ -297,6 +297,7 @@ cat >! input.nml <<EOF
        beta = 0.2
        a_imp = 0.8
 
+       adv_scheme = $advscheme
        hord_mt = $hord_mt
        hord_vt = $hord_xx
        hord_tm = $hord_xx
